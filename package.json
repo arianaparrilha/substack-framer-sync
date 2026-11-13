@@ -1,0 +1,7 @@
+{
+  "name": "substack-framer-sync",
+  "private": true,
+  "type": "module",
+  "scripts": { "sync": "node sync-substack.mjs" },
+  "dependencies": { "framer-api": "latest" }
+}

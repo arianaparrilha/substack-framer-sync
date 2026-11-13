@@ -1,0 +1,21 @@
+name: Sync Substack → Framer
+
+on:
+  schedule:
+    - cron: "0 8 * * 2"    # terças-feiras às 08:00 UTC (8h em Lisboa no inverno, 9h no verão)
+  workflow_dispatch:        # botão "Run workflow" para correr à mão
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run sync
+        env:
+          FRAMER_API_KEY: ${{ secrets.FRAMER_API_KEY }}
+          FRAMER_PROJECT_URL: ${{ secrets.FRAMER_PROJECT_URL }}
+          AUTO_DEPLOY: ${{ vars.AUTO_DEPLOY || 'true' }}
