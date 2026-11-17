@@ -76,7 +76,22 @@ if (posts.length === 0) {
 }
 
 // --- 2. Ligar ao Framer -------------------------------------------------------
-const framer = await connect(PROJECT_URL, API_KEY)
+// A ligação ao Framer às vezes falha por timeout do lado deles (a API está em beta).
+// Tentamos até 3 vezes, com uma pausa entre tentativas.
+async function connectWithRetry(attempts = 3) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      console.log(`A ligar ao Framer (tentativa ${i} de ${attempts})...`)
+      return await connect(PROJECT_URL, API_KEY)
+    } catch (e) {
+      console.log(`Falhou: ${e.message}`)
+      if (i === attempts) throw e
+      await new Promise((r) => setTimeout(r, 30_000))
+    }
+  }
+}
+const framer = await connectWithRetry()
+console.log("Ligado ao Framer.")
 try {
   const collections = await framer.getCollections()
   const collection = collections.find((c) => c.name === COLLECTION_NAME)
