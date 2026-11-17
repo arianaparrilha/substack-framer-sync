@@ -62,10 +62,37 @@ async function fromApi() {
     }))
 }
 
+// Plano C: o rss2json lê o feed a partir dos servidores dele e devolve-o em JSON.
+// Útil quando o Cloudflare do Substack bloqueia os servidores do GitHub.
+async function fromRss2Json() {
+  const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(FEED_URL)}`
+  const res = await fetch(url, { headers: HEADERS })
+  console.log(`rss2json: estado ${res.status}`)
+  if (!res.ok) return []
+  const data = await res.json()
+  if (data.status !== "ok") { console.log("rss2json:", data.message); return [] }
+  const stripHtml = (s) => (s ?? "").replace(/<[^>]*>/g, "").trim()
+  return data.items.map((p) => ({
+    title: p.title,
+    excerpt: stripHtml(p.description),
+    link: p.link,
+    slug: slugFromLink(p.link),
+    date: new Date(p.pubDate.replace(" ", "T") + "Z").toISOString(),
+    cover: p.enclosure?.link || p.thumbnail || null,
+  }))
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const sources = [["RSS", fromRss], ["API", fromApi], ["rss2json", fromRss2Json]]
+
 let posts = []
-try { posts = await fromRss() } catch (e) { console.log("RSS falhou:", e.message) }
-if (posts.length === 0) {
-  try { posts = await fromApi() } catch (e) { console.log("API falhou:", e.message) }
+// Até 3 rondas: em cada uma tentamos as três fontes, por ordem.
+for (let round = 1; round <= 3 && posts.length === 0; round++) {
+  if (round > 1) { console.log(`Nova ronda em 20s (${round} de 3)...`); await sleep(20_000) }
+  for (const [name, fn] of sources) {
+    try { posts = await fn() } catch (e) { console.log(`${name} falhou:`, e.message) }
+    if (posts.length > 0) { console.log(`Posts lidos via ${name}.`); break }
+  }
 }
 console.log(`Substack: ${posts.length} posts encontrados.`)
 
