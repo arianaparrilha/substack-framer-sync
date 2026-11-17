@@ -14,21 +14,66 @@ if (!PROJECT_URL || !API_KEY) {
   process.exit(1)
 }
 
-// --- 1. Ler o feed do Substack ---------------------------------------------
-const xml = await (await fetch(FEED_URL)).text()
-const pick = (chunk, re) => chunk.match(re)?.[1]?.trim() ?? null
-const posts = xml.split("<item>").slice(1).map((chunk) => {
-  const link = pick(chunk, /<link>([\s\S]*?)<\/link>/)
-  return {
-    title: pick(chunk, /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/),
-    excerpt: pick(chunk, /<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) ?? "",
-    link,
-    slug: link.split("/p/")[1].replace(/\/$/, ""),
-    date: new Date(pick(chunk, /<pubDate>([\s\S]*?)<\/pubDate>/)).toISOString(),
-    cover: pick(chunk, /<enclosure url="([^"]+)"/),
-  }
-})
-console.log(`Feed: ${posts.length} posts encontrados.`)
+// --- 1. Ler os posts do Substack ---------------------------------------------
+// O Substack às vezes bloqueia pedidos de servidores (como os do GitHub).
+// Por isso: (a) identificamo-nos como um browser normal, (b) tentamos o feed RSS
+// e, se não vier nada, (c) tentamos a API pública do Substack.
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+  "Accept": "application/rss+xml, application/xml, application/json, text/xml, */*",
+}
+const BASE_URL = new URL(FEED_URL).origin
+const slugFromLink = (link) => link.split("/p/")[1].replace(/\/$/, "").split("?")[0]
+
+async function fromRss() {
+  const res = await fetch(FEED_URL, { headers: HEADERS })
+  const text = await res.text()
+  console.log(`RSS: estado ${res.status}`)
+  if (!res.ok) { console.log(text.slice(0, 300)); return [] }
+  const pick = (chunk, re) => chunk.match(re)?.[1]?.trim() ?? null
+  const cdata = (s) => s?.replace(/^<!\[CDATA\[|\]\]>$/g, "").trim() ?? null
+  return text.split(/<item[\s>]/).slice(1).map((chunk) => {
+    const link = pick(chunk, /<link>([\s\S]*?)<\/link>/)
+    return {
+      title: cdata(pick(chunk, /<title>([\s\S]*?)<\/title>/)),
+      excerpt: cdata(pick(chunk, /<description>([\s\S]*?)<\/description>/)) ?? "",
+      link,
+      slug: slugFromLink(link),
+      date: new Date(pick(chunk, /<pubDate>([\s\S]*?)<\/pubDate>/)).toISOString(),
+      cover: pick(chunk, /<enclosure[^>]*url="([^"]+)"/),
+    }
+  })
+}
+
+async function fromApi() {
+  const res = await fetch(`${BASE_URL}/api/v1/posts?limit=50`, { headers: HEADERS })
+  console.log(`API: estado ${res.status}`)
+  if (!res.ok) { console.log((await res.text()).slice(0, 300)); return [] }
+  const data = await res.json()
+  return data
+    .filter((p) => p.canonical_url && p.post_date)
+    .map((p) => ({
+      title: p.title,
+      excerpt: p.subtitle ?? p.description ?? "",
+      link: p.canonical_url,
+      slug: p.slug ?? slugFromLink(p.canonical_url),
+      date: new Date(p.post_date).toISOString(),
+      cover: p.cover_image ?? null,
+    }))
+}
+
+let posts = []
+try { posts = await fromRss() } catch (e) { console.log("RSS falhou:", e.message) }
+if (posts.length === 0) {
+  try { posts = await fromApi() } catch (e) { console.log("API falhou:", e.message) }
+}
+console.log(`Substack: ${posts.length} posts encontrados.`)
+
+// Se não encontrámos nenhum post, algo está errado: falhar em vez de fingir que está tudo bem.
+if (posts.length === 0) {
+  console.error("Não foi possível ler nenhum post do Substack. Ver as mensagens acima.")
+  process.exit(1)
+}
 
 // --- 2. Ligar ao Framer -------------------------------------------------------
 const framer = await connect(PROJECT_URL, API_KEY)

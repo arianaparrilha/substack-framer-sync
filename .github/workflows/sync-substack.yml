@@ -2,7 +2,7 @@ name: Sync Substack → Framer
 
 on:
   schedule:
-    - cron: "0 8 * * 2"    # terças-feiras às 08:00 UTC (8h em Lisboa no inverno, 9h no verão)
+    - cron: "37 7 * * 2"   # terças-feiras às 07:37 UTC (fora da hora certa, menos atrasos)
   workflow_dispatch:        # botão "Run workflow" para correr à mão
 
 jobs:
